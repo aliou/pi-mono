@@ -202,6 +202,10 @@ export const streamGoogleGeminiCli: StreamFunction<"google-gemini-cli"> = (
 			const blocks = output.content;
 			const blockIndex = () => blocks.length - 1;
 
+			// Workaround for Gemini bug: sometimes thinking is sent as plain text with <thinking> tags
+			// instead of being properly marked with thought=true. Track when we're in this mode.
+			let fallbackThinkingMode = false;
+
 			// Read SSE stream
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
@@ -236,54 +240,111 @@ export const streamGoogleGeminiCli: StreamFunction<"google-gemini-cli"> = (
 					if (candidate?.content?.parts) {
 						for (const part of candidate.content.parts) {
 							if (part.text !== undefined) {
-								const isThinking = part.thought === true;
-								if (
-									!currentBlock ||
-									(isThinking && currentBlock.type !== "thinking") ||
-									(!isThinking && currentBlock.type !== "text")
-								) {
-									if (currentBlock) {
-										if (currentBlock.type === "text") {
-											stream.push({
-												type: "text_end",
-												contentIndex: blocks.length - 1,
-												content: currentBlock.text,
-												partial: output,
-											});
-										} else {
-											stream.push({
-												type: "thinking_end",
-												contentIndex: blockIndex(),
-												content: currentBlock.thinking,
-												partial: output,
-											});
-										}
-									}
-									if (isThinking) {
-										currentBlock = { type: "thinking", thinking: "", thinkingSignature: undefined };
-										output.content.push(currentBlock);
-										stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
-									} else {
-										currentBlock = { type: "text", text: "" };
-										output.content.push(currentBlock);
-										stream.push({ type: "text_start", contentIndex: blockIndex(), partial: output });
+								let text = part.text;
+								let isThinking = part.thought === true;
+
+								// Workaround: detect <thinking> tags when thought !== true
+								if (!isThinking && !fallbackThinkingMode) {
+									// Check if this text starts with <thinking> tag
+									const trimmed = text.trimStart();
+									if (trimmed.startsWith("<thinking>")) {
+										fallbackThinkingMode = true;
+										isThinking = true;
+										// Remove the <thinking> tag from the text
+										const tagIndex = text.indexOf("<thinking>");
+										text = text.slice(tagIndex + "<thinking>".length);
 									}
 								}
-								if (currentBlock.type === "thinking") {
-									currentBlock.thinking += part.text;
-									currentBlock.thinkingSignature = part.thoughtSignature;
-									stream.push({
-										type: "thinking_delta",
-										contentIndex: blockIndex(),
-										delta: part.text,
-										partial: output,
-									});
-								} else {
-									currentBlock.text += part.text;
+
+								// If we're in fallback thinking mode, treat as thinking
+								if (fallbackThinkingMode && !part.thought) {
+									isThinking = true;
+								}
+
+								// Check for </thinking> tag to exit fallback mode
+								let textAfterThinking = "";
+								if (fallbackThinkingMode && text.includes("</thinking>")) {
+									const endTagIndex = text.indexOf("</thinking>");
+									const thinkingPart = text.slice(0, endTagIndex);
+									textAfterThinking = text.slice(endTagIndex + "</thinking>".length);
+									text = thinkingPart;
+									fallbackThinkingMode = false;
+								}
+
+								// Process the thinking/text content
+								if (text.length > 0) {
+									if (
+										!currentBlock ||
+										(isThinking && currentBlock.type !== "thinking") ||
+										(!isThinking && currentBlock.type !== "text")
+									) {
+										if (currentBlock) {
+											if (currentBlock.type === "text") {
+												stream.push({
+													type: "text_end",
+													contentIndex: blocks.length - 1,
+													content: currentBlock.text,
+													partial: output,
+												});
+											} else {
+												stream.push({
+													type: "thinking_end",
+													contentIndex: blockIndex(),
+													content: currentBlock.thinking,
+													partial: output,
+												});
+											}
+										}
+										if (isThinking) {
+											currentBlock = { type: "thinking", thinking: "", thinkingSignature: undefined };
+											output.content.push(currentBlock);
+											stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
+										} else {
+											currentBlock = { type: "text", text: "" };
+											output.content.push(currentBlock);
+											stream.push({ type: "text_start", contentIndex: blockIndex(), partial: output });
+										}
+									}
+									if (currentBlock.type === "thinking") {
+										currentBlock.thinking += text;
+										currentBlock.thinkingSignature = part.thoughtSignature;
+										stream.push({
+											type: "thinking_delta",
+											contentIndex: blockIndex(),
+											delta: text,
+											partial: output,
+										});
+									} else {
+										currentBlock.text += text;
+										stream.push({
+											type: "text_delta",
+											contentIndex: blockIndex(),
+											delta: text,
+											partial: output,
+										});
+									}
+								}
+
+								// If there was text after </thinking>, process it as regular text
+								if (textAfterThinking.length > 0) {
+									// End the current thinking block if any
+									if (currentBlock?.type === "thinking") {
+										stream.push({
+											type: "thinking_end",
+											contentIndex: blockIndex(),
+											content: currentBlock.thinking,
+											partial: output,
+										});
+									}
+									// Start a new text block
+									currentBlock = { type: "text", text: "" };
+									output.content.push(currentBlock);
+									stream.push({ type: "text_start", contentIndex: blockIndex(), partial: output });
+									currentBlock.text += textAfterThinking;
 									stream.push({
 										type: "text_delta",
 										contentIndex: blockIndex(),
-										delta: part.text,
+										delta: textAfterThinking,
 										partial: output,
 									});
 								}
