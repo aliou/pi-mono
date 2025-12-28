@@ -592,6 +592,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	// Restore messages if session has existing data
 	if (hasExistingSession) {
 		agent.replaceMessages(existingSession.messages);
+	} else {
+		// Save initial model and thinking level for new sessions so they can be restored on resume
+		if (model) {
+			sessionManager.saveModelChange(model.provider, model.id);
+		}
+		sessionManager.saveThinkingLevelChange(thinkingLevel);
 	}
 
 	const session = new AgentSession({

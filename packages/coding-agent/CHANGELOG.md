@@ -6,6 +6,10 @@
 
 - **`enabledModels` setting**: Configure whitelisted models in `settings.json` (same format as `--models` CLI flag). CLI `--models` takes precedence over the setting.
 
+### Fixed
+
+- **Initial model and thinking level not saved to session**: When starting a new session, the initial model and thinking level were not saved to the session file, causing `--resume` to not restore them correctly.
+
 ## [0.30.2] - 2025-12-26
 
 ### Changed
