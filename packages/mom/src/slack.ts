@@ -329,7 +329,7 @@ export class SlackBot {
 			ack();
 		});
 
-		// All messages (for logging) + DMs (for triggering)
+		// All messages (for logging) + DMs and channels (for triggering)
 		this.socketClient.on("message", ({ event, ack }) => {
 			const e = event as {
 				text?: string;
@@ -385,24 +385,31 @@ export class SlackBot {
 				return;
 			}
 
-			// Only trigger handler for DMs
-			if (isDM) {
-				// Check for stop command - execute immediately, don't queue!
-				if (slackEvent.text.toLowerCase().trim() === "stop") {
-					if (this.handler.isRunning(e.channel)) {
-						this.handler.handleStop(e.channel, this); // Don't await, don't queue
-					} else {
-						this.postMessage(e.channel, "_Nothing running_");
-					}
-					ack();
-					return;
-				}
-
+			// Check for stop command - execute immediately, don't queue!
+			if (slackEvent.text.toLowerCase().trim() === "stop") {
 				if (this.handler.isRunning(e.channel)) {
-					this.postMessage(e.channel, "_Already working. Say `stop` to cancel._");
+					this.handler.handleStop(e.channel, this); // Don't await, don't queue
 				} else {
-					this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
+					this.postMessage(e.channel, "_Nothing running_");
 				}
+				ack();
+				return;
+			}
+
+			// Trigger handler for ALL messages (DMs and channels)
+			// Skip channel @mentions here - they're handled by app_mention event to avoid duplication
+			if (!isDM && isBotMention) {
+				ack();
+				return;
+			}
+
+			if (this.handler.isRunning(e.channel)) {
+				const warningMsg = isDM
+					? "_Already working. Say `stop` to cancel._"
+					: "_Already working. Say `@mom stop` to cancel._";
+				this.postMessage(e.channel, warningMsg);
+			} else {
+				this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
 			}
 
 			ack();
