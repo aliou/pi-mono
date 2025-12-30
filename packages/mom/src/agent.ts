@@ -279,6 +279,9 @@ Write to MEMORY.md files to persist context across conversations.
 - Channel (${channelPath}/MEMORY.md): channel-specific decisions, ongoing work
 Update when you learn something important or when asked to remember something.
 
+### Proactive Mode
+By default, you only respond to @mentions in channels. To make a channel proactive (respond to all messages like DMs), add \`[PROACTIVE_MODE]\` to the channel's MEMORY.md file. This is useful for dedicated mom channels.
+
 ### Current Memory
 ${memory}
 

@@ -6,6 +6,29 @@ import * as log from "./log.js";
 import type { Attachment, ChannelStore } from "./store.js";
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Check if a channel should have proactive responses.
+ * Returns true if the channel's MEMORY.md contains [PROACTIVE_MODE] marker.
+ */
+function isProactiveChannel(channelId: string, workingDir: string): boolean {
+	const channelMemoryPath = join(workingDir, channelId, "MEMORY.md");
+	if (!existsSync(channelMemoryPath)) {
+		return false;
+	}
+
+	try {
+		const content = readFileSync(channelMemoryPath, "utf-8");
+		// Check for [PROACTIVE_MODE] marker anywhere in the file
+		return content.includes("[PROACTIVE_MODE]");
+	} catch (error) {
+		return false;
+	}
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -329,7 +352,7 @@ export class SlackBot {
 			ack();
 		});
 
-		// All messages (for logging) + DMs and channels (for triggering)
+		// All messages (for logging) + DMs and proactive channels (for triggering)
 		this.socketClient.on("message", ({ event, ack }) => {
 			const e = event as {
 				text?: string;
@@ -396,20 +419,27 @@ export class SlackBot {
 				return;
 			}
 
-			// Trigger handler for ALL messages (DMs and channels)
-			// Skip channel @mentions here - they're handled by app_mention event to avoid duplication
+			// Determine if we should trigger handler for this message
+			// - DMs: always trigger
+			// - Channels: only if proactive mode is enabled
+			const shouldTrigger = isDM || isProactiveChannel(e.channel, this.workingDir);
+
+			// Skip channel @mentions - they're handled by app_mention event to avoid duplication
 			if (!isDM && isBotMention) {
 				ack();
 				return;
 			}
 
-			if (this.handler.isRunning(e.channel)) {
-				const warningMsg = isDM
-					? "_Already working. Say `stop` to cancel._"
-					: "_Already working. Say `@mom stop` to cancel._";
-				this.postMessage(e.channel, warningMsg);
-			} else {
-				this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
+			// Only trigger if conditions are met
+			if (shouldTrigger) {
+				if (this.handler.isRunning(e.channel)) {
+					const warningMsg = isDM
+						? "_Already working. Say `stop` to cancel._"
+						: "_Already working. Say `@mom stop` to cancel._";
+					this.postMessage(e.channel, warningMsg);
+				} else {
+					this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
+				}
 			}
 
 			ack();
