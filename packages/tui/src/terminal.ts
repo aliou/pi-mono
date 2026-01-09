@@ -56,6 +56,11 @@ export class ProcessTerminal implements Terminal {
 		this.inputHandler = onInput;
 		this.resizeHandler = onResize;
 
+		// Refresh terminal dimensions - they may be stale after suspend/resume
+		// (SIGWINCH is lost while process is stopped)
+		// Sending SIGWINCH to ourselves triggers Node.js's internal handler to refresh dimensions
+		process.kill(process.pid, "SIGWINCH");
+
 		// Save previous state and enable raw mode
 		this.wasRaw = process.stdin.isRaw || false;
 		if (process.stdin.setRawMode) {

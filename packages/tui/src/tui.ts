@@ -92,6 +92,7 @@ export class TUI extends Container {
 	private cursorRow = 0; // Track where cursor is (0-indexed, relative to our first line)
 	private inputBuffer = ""; // Buffer for parsing terminal responses
 	private cellSizeQueryPending = false;
+	private forceClear = false; // Force screen clear on next render (e.g., after suspend/resume)
 
 	// Overlay stack for modal components rendered on top of base content
 	private overlayStack: {
@@ -166,6 +167,7 @@ export class TUI extends Container {
 			this.previousLines = [];
 			this.previousWidth = 0;
 			this.cursorRow = 0;
+			this.forceClear = true;
 		}
 		if (this.renderRequested) return;
 		this.renderRequested = true;
@@ -331,11 +333,13 @@ export class TUI extends Container {
 			newLines = this.compositeOverlays(newLines, width, height);
 		}
 
-		// Width changed - need full re-render
+		// Width changed or force clear - need full re-render with screen clear
 		const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
+		const needsClear = widthChanged || this.forceClear;
+		this.forceClear = false; // Reset flag after reading
 
 		// First render - just output everything without clearing
-		if (this.previousLines.length === 0) {
+		if (this.previousLines.length === 0 && !needsClear) {
 			let buffer = "\x1b[?2026h"; // Begin synchronized output
 			for (let i = 0; i < newLines.length; i++) {
 				if (i > 0) buffer += "\r\n";
@@ -350,8 +354,8 @@ export class TUI extends Container {
 			return;
 		}
 
-		// Width changed - full re-render
-		if (widthChanged) {
+		// Full re-render with screen clear (width changed, force clear, or first render after force)
+		if (needsClear) {
 			let buffer = "\x1b[?2026h"; // Begin synchronized output
 			buffer += "\x1b[3J\x1b[2J\x1b[H"; // Clear scrollback, screen, and home
 			for (let i = 0; i < newLines.length; i++) {
