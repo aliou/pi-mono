@@ -351,6 +351,11 @@ function createClient(model: Model<"openai-completions">, context: Context, apiK
 		}
 	}
 
+	if (model.provider === "openrouter") {
+		headers["X-Title"] = "Pi";
+		headers["HTTP-Referer"] = "https://shittycodingagent.ai/";
+	}
+
 	return new OpenAI({
 		apiKey,
 		baseURL: model.baseUrl,
