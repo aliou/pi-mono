@@ -1,14 +1,53 @@
 import type { AgentState, AgentTool } from "@mariozechner/pi-agent-core";
+import type { AssistantMessage, ToolCall } from "@mariozechner/pi-ai";
 import { buildCodexPiBridge, getCodexInstructions } from "@mariozechner/pi-ai";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { basename, join } from "path";
 import { APP_NAME, getExportTemplateDir } from "../../config.js";
 import { getResolvedThemeColors, getThemeExportColors } from "../../modes/interactive/theme/theme.js";
+import type { SessionMessageEntry } from "../session-manager.js";
 import { SessionManager } from "../session-manager.js";
+
+/** Built-in tool names that have custom rendering in template.js */
+const BUILTIN_TOOLS = new Set(["bash", "read", "write", "edit", "ls", "find", "grep"]);
+
+/**
+ * Renderer interface for custom tool HTML generation.
+ * Implementations convert tool calls/results to HTML for export.
+ */
+export interface ToolHtmlRenderer {
+	/**
+	 * Render a tool call to HTML.
+	 * @param toolName Name of the tool
+	 * @param args Tool arguments
+	 * @param toolCallId The tool call ID (for looking up results)
+	 * @returns HTML string, or undefined to use default JSON rendering
+	 */
+	renderCall(toolName: string, args: unknown, toolCallId: string): string | undefined;
+
+	/**
+	 * Render a tool result to HTML.
+	 * @param toolName Name of the tool
+	 * @param result Tool result content
+	 * @param details Tool result details
+	 * @param isError Whether the result is an error
+	 * @param expanded Whether to render the expanded version
+	 * @returns HTML string, or undefined to use default rendering
+	 */
+	renderResult(
+		toolName: string,
+		result: Array<{ type: string; text?: string; data?: string; mimeType?: string }>,
+		details: unknown,
+		isError: boolean,
+		expanded: boolean,
+	): string | undefined;
+}
 
 export interface ExportOptions {
 	outputPath?: string;
 	themeName?: string;
+	/** Optional renderer for custom tool HTML generation */
+	toolRenderer?: ToolHtmlRenderer;
 }
 
 /** Info about Codex injection to show inline with model_change entries */
@@ -130,6 +169,16 @@ function generateThemeVars(themeName?: string): string {
 	return lines.join("\n      ");
 }
 
+/** Pre-rendered HTML for a tool call */
+interface RenderedToolHtml {
+	/** HTML for the tool call header/args */
+	callHtml?: string;
+	/** HTML for the tool result (collapsed view) */
+	resultHtmlCollapsed?: string;
+	/** HTML for the tool result (expanded view) */
+	resultHtmlExpanded?: string;
+}
+
 interface SessionData {
 	header: ReturnType<SessionManager["getHeader"]>;
 	entries: ReturnType<SessionManager["getEntries"]>;
@@ -138,6 +187,109 @@ interface SessionData {
 	/** Info for rendering Codex injection inline with model_change entries */
 	codexInjectionInfo?: CodexInjectionInfo;
 	tools?: { name: string; description: string }[];
+	/** Pre-rendered HTML for custom tool calls, keyed by toolCallId */
+	renderedTools?: Record<string, RenderedToolHtml>;
+}
+
+/**
+ * Build a map from toolCallId to tool result for quick lookup.
+ */
+function buildToolResultMap(entries: ReturnType<SessionManager["getEntries"]>): Map<
+	string,
+	{
+		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+		details?: unknown;
+		isError: boolean;
+	}
+> {
+	const map = new Map<
+		string,
+		{
+			content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+			details?: unknown;
+			isError: boolean;
+		}
+	>();
+	for (const entry of entries) {
+		if (entry.type === "message") {
+			const msg = (entry as SessionMessageEntry).message;
+			if (msg.role === "toolResult") {
+				map.set(msg.toolCallId, {
+					content: msg.content as Array<{ type: string; text?: string; data?: string; mimeType?: string }>,
+					details: (msg as { details?: unknown }).details,
+					isError: msg.isError ?? false,
+				});
+			}
+		}
+	}
+	return map;
+}
+
+/**
+ * Pre-render custom tool calls using the provided renderer.
+ * Only renders tools that are not built-in (don't have special rendering in template.js).
+ */
+function renderCustomTools(
+	entries: ReturnType<SessionManager["getEntries"]>,
+	renderer: ToolHtmlRenderer,
+): Record<string, RenderedToolHtml> {
+	const renderedTools: Record<string, RenderedToolHtml> = {};
+	const toolResults = buildToolResultMap(entries);
+
+	for (const entry of entries) {
+		if (entry.type === "message") {
+			const msg = (entry as SessionMessageEntry).message;
+			if (msg.role === "assistant") {
+				const assistantMsg = msg as AssistantMessage;
+				for (const block of assistantMsg.content) {
+					if (block.type === "toolCall") {
+						const toolCall = block as ToolCall;
+						// Only render custom tools (not built-in ones)
+						if (!BUILTIN_TOOLS.has(toolCall.name)) {
+							const rendered: RenderedToolHtml = {};
+
+							// Render call
+							const callHtml = renderer.renderCall(toolCall.name, toolCall.arguments, toolCall.id);
+							if (callHtml) {
+								rendered.callHtml = callHtml;
+							}
+
+							// Render result if available (both collapsed and expanded)
+							const result = toolResults.get(toolCall.id);
+							if (result) {
+								const collapsedHtml = renderer.renderResult(
+									toolCall.name,
+									result.content,
+									result.details,
+									result.isError,
+									false,
+								);
+								const expandedHtml = renderer.renderResult(
+									toolCall.name,
+									result.content,
+									result.details,
+									result.isError,
+									true,
+								);
+								if (collapsedHtml) {
+									rendered.resultHtmlCollapsed = collapsedHtml;
+								}
+								if (expandedHtml) {
+									rendered.resultHtmlExpanded = expandedHtml;
+								}
+							}
+
+							if (rendered.callHtml || rendered.resultHtmlCollapsed || rendered.resultHtmlExpanded) {
+								renderedTools[toolCall.id] = rendered;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return renderedTools;
 }
 
 /**
@@ -195,13 +347,19 @@ export async function exportSessionToHtml(
 		throw new Error("Nothing to export yet - start a conversation first");
 	}
 
+	const entries = sm.getEntries();
+
+	// Pre-render custom tools if a renderer is provided
+	const renderedTools = opts.toolRenderer ? renderCustomTools(entries, opts.toolRenderer) : undefined;
+
 	const sessionData: SessionData = {
 		header: sm.getHeader(),
-		entries: sm.getEntries(),
+		entries,
 		leafId: sm.getLeafId(),
 		systemPrompt: state?.systemPrompt,
 		codexInjectionInfo: await buildCodexInjectionInfo(state?.tools),
 		tools: state?.tools?.map((t) => ({ name: t.name, description: t.description })),
+		renderedTools,
 	};
 
 	const html = generateHtml(sessionData, opts.themeName);

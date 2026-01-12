@@ -32,6 +32,7 @@ import type {
 	SessionBeforeTreeResult,
 	ToolCallEvent,
 	ToolCallEventResult,
+	ToolDefinition,
 	ToolResultEventResult,
 	UserBashEvent,
 	UserBashEventResult,
@@ -185,6 +186,17 @@ export class ExtensionRunner {
 			}
 		}
 		return tools;
+	}
+
+	/** Get a registered tool definition by name. */
+	getToolDefinition(name: string): ToolDefinition | undefined {
+		for (const ext of this.extensions) {
+			const tool = ext.tools.get(name);
+			if (tool) {
+				return tool.definition;
+			}
+		}
+		return undefined;
 	}
 
 	getFlags(): Map<string, ExtensionFlag> {

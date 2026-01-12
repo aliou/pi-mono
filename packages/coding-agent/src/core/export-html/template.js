@@ -12,7 +12,7 @@
         bytes[i] = binary.charCodeAt(i);
       }
       const data = JSON.parse(new TextDecoder('utf-8').decode(bytes));
-      const { header, entries, leafId: defaultLeafId, systemPrompt, codexInjectionInfo, tools } = data;
+      const { header, entries, leafId: defaultLeafId, systemPrompt, codexInjectionInfo, tools, renderedTools } = data;
 
       // ============================================================
       // URL PARAMETER HANDLING
@@ -778,11 +778,43 @@
             break;
           }
           default: {
-            html += `<div class="tool-header"><span class="tool-name">${escapeHtml(name)}</span></div>`;
-            html += `<div class="tool-output"><pre>${escapeHtml(JSON.stringify(args, null, 2))}</pre></div>`;
-            if (result) {
-              const output = getResultText();
-              if (output) html += formatExpandableOutput(output, 10);
+            // Check for pre-rendered HTML from custom tool renderers
+            const rendered = renderedTools?.[call.id];
+            if (rendered?.callHtml || rendered?.resultHtmlCollapsed || rendered?.resultHtmlExpanded) {
+              // Use pre-rendered HTML
+              if (rendered.callHtml) {
+                html += `<div class="tool-custom-call">${rendered.callHtml}</div>`;
+              } else {
+                html += `<div class="tool-header"><span class="tool-name">${escapeHtml(name)}</span></div>`;
+              }
+              if (result) {
+                const hasCollapsed = rendered.resultHtmlCollapsed;
+                const hasExpanded = rendered.resultHtmlExpanded;
+                const isDifferent = hasCollapsed && hasExpanded && rendered.resultHtmlCollapsed !== rendered.resultHtmlExpanded;
+                
+                if (isDifferent) {
+                  // Expandable result with different collapsed and expanded views
+                  html += `<div class="tool-custom-result expandable" onclick="this.classList.toggle('expanded')">`;
+                  html += `<div class="output-preview">${rendered.resultHtmlCollapsed}<div class="expand-hint">... (click to expand)</div></div>`;
+                  html += `<div class="output-full">${rendered.resultHtmlExpanded}</div>`;
+                  html += `</div>`;
+                } else if (hasExpanded) {
+                  html += `<div class="tool-custom-result">${rendered.resultHtmlExpanded}</div>`;
+                } else if (hasCollapsed) {
+                  html += `<div class="tool-custom-result">${rendered.resultHtmlCollapsed}</div>`;
+                } else {
+                  const output = getResultText();
+                  if (output) html += formatExpandableOutput(output, 10);
+                }
+              }
+            } else {
+              // Fall back to JSON rendering
+              html += `<div class="tool-header"><span class="tool-name">${escapeHtml(name)}</span></div>`;
+              html += `<div class="tool-output"><pre>${escapeHtml(JSON.stringify(args, null, 2))}</pre></div>`;
+              if (result) {
+                const output = getResultText();
+                if (output) html += formatExpandableOutput(output, 10);
+              }
             }
           }
         }

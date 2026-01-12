@@ -489,6 +489,44 @@
       color: var(--toolOutput);
     }
 
+    /* Custom tool rendering (pre-rendered from TUI components) */
+    .tool-custom-call,
+    .tool-custom-result {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .tool-custom-call {
+      margin-bottom: 4px;
+    }
+
+    .tool-custom-result {
+      margin-top: 8px;
+    }
+
+    .tool-custom-result.expandable {
+      cursor: pointer;
+    }
+
+    .tool-custom-result.expandable:hover {
+      opacity: 0.9;
+    }
+
+    .tool-custom-result.expandable .output-full {
+      display: none;
+    }
+
+    .tool-custom-result.expandable.expanded .output-preview {
+      display: none;
+    }
+
+    .tool-custom-result.expandable.expanded .output-full {
+      display: block;
+    }
+
     /* Diff */
     .tool-diff {
       font-size: 11px;

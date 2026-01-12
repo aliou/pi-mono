@@ -35,6 +35,7 @@ import {
 	shouldCompact,
 } from "./compaction/index.js";
 import { exportSessionToHtml } from "./export-html/index.js";
+import { createToolHtmlRenderer } from "./export-html/tool-renderer.js";
 import type {
 	ExtensionRunner,
 	SessionBeforeCompactResult,
@@ -2145,7 +2146,9 @@ export class AgentSession {
 	 */
 	async exportToHtml(outputPath?: string): Promise<string> {
 		const themeName = this.settingsManager.getTheme();
-		return await exportSessionToHtml(this.sessionManager, this.state, { outputPath, themeName });
+		// Create tool renderer if we have an extension runner (for custom tool rendering)
+		const toolRenderer = this._extensionRunner ? createToolHtmlRenderer(this._extensionRunner) : undefined;
+		return await exportSessionToHtml(this.sessionManager, this.state, { outputPath, themeName, toolRenderer });
 	}
 
 	// =========================================================================
