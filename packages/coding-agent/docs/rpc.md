@@ -38,7 +38,7 @@ Send a user prompt to the agent. Returns immediately; events stream asynchronous
 
 With images:
 ```json
-{"type": "prompt", "message": "What's in this image?", "images": [{"type": "image", "source": {"type": "base64", "mediaType": "image/png", "data": "..."}}]}
+{"type": "prompt", "message": "What's in this image?", "images": [{"type": "image", "data": "base64-encoded-data", "mimeType": "image/png"}]}
 ```
 
 **During streaming**: If the agent is already streaming, you must specify `streamingBehavior` to queue the message:
@@ -61,7 +61,7 @@ Response:
 {"id": "req-1", "type": "response", "command": "prompt", "success": true}
 ```
 
-The `images` field is optional. Each image uses `ImageContent` format with base64 or URL source.
+The `images` field is optional. Each image uses `ImageContent` format: `{"type": "image", "data": "base64-encoded-data", "mimeType": "image/png"}`.
 
 #### steer
 
