@@ -7,6 +7,10 @@
 - API keys in `auth.json` now support shell command resolution (`!command`) and environment variable lookup, matching the behavior in `models.json`
 - Added `minimal-mode.ts` example extension demonstrating how to override built-in tool rendering for a minimal display mode
 
+### Fixed
+
+- Fixed incorrect `ImageContent` JSON format in RPC docs to match actual type definition ([#1268](https://github.com/badlogic/pi-mono/pull/1268) by [@aliou](https://github.com/aliou))
+
 ## [0.51.6] - 2026-02-04
 
 ### New Features
