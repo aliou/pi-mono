@@ -2266,7 +2266,7 @@ export class AgentSession {
 
 		// If agent is streaming, defer adding to avoid breaking tool_use/tool_result ordering
 		if (this.isStreaming) {
-			// Queue for later - will be flushed on agent_end
+			// Queue for later - will be flushed before next prompt
 			this._pendingBashMessages.push(bashMessage);
 		} else {
 			// Add to agent state immediately
