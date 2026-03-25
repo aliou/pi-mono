@@ -118,6 +118,10 @@ return streamSimple(model, messages, {
 - Fixed stale content and incorrect viewport tracking after TUI content shrinks or transient components inflate the working area ([#2126](https://github.com/badlogic/pi-mono/pull/2126) by [@Perlence](https://github.com/Perlence))
 - Fixed `@` autocomplete to debounce editor-triggered searches, cancel in-flight `fd` lookups cleanly, and keep suggestions visible while results refresh ([#1278](https://github.com/badlogic/pi-mono/issues/1278))
 
+### Changed
+
+- Documented the `resources_discover` extension event in `docs/extensions.md`, including lifecycle timing, reload behavior, and return path fields for dynamic skills, prompts, and themes ([#2597](https://github.com/badlogic/pi-mono/pull/2597) by [@aliou](https://github.com/aliou))
+
 ## [0.62.0] - 2026-03-23
 
 ### New Features
