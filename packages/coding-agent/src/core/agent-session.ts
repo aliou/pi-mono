@@ -249,8 +249,8 @@ export class AgentSession {
 	private _pendingNextTurnMessages: CustomMessage[] = [];
 
 	// Compaction state
-	private _compactionAbortController: AbortController | undefined = undefined;
-	private _autoCompactionAbortController: AbortController | undefined = undefined;
+	private _compactionCancelController: AbortController | undefined = undefined;
+	private _activeCompactionControllers = new Set<AbortController>();
 	private _overflowRecoveryAttempted = false;
 
 	// Branch summarization state
@@ -802,11 +802,7 @@ export class AgentSession {
 
 	/** Whether compaction or branch summarization is currently running */
 	get isCompacting(): boolean {
-		return (
-			this._autoCompactionAbortController !== undefined ||
-			this._compactionAbortController !== undefined ||
-			this._branchSummaryAbortController !== undefined
-		);
+		return this._activeCompactionControllers.size > 0 || this._branchSummaryAbortController !== undefined;
 	}
 
 	/** All messages including custom types like BashExecutionMessage */
@@ -1584,7 +1580,12 @@ export class AgentSession {
 	async compact(customInstructions?: string): Promise<CompactionResult> {
 		this._disconnectFromAgent();
 		await this.abort();
-		this._compactionAbortController = new AbortController();
+		if (!this._compactionCancelController) {
+			this._compactionCancelController = new AbortController();
+		}
+		const controller = new AbortController();
+		this._activeCompactionControllers.add(controller);
+		const signal = AbortSignal.any([controller.signal, this._compactionCancelController.signal]);
 		this._emit({ type: "compaction_start", reason: "manual" });
 
 		try {
@@ -1616,7 +1617,7 @@ export class AgentSession {
 					preparation,
 					branchEntries: pathEntries,
 					customInstructions,
-					signal: this._compactionAbortController.signal,
+					signal,
 				})) as SessionBeforeCompactResult | undefined;
 
 				if (result?.cancel) {
@@ -1642,21 +1643,14 @@ export class AgentSession {
 				details = extensionCompaction.details;
 			} else {
 				// Generate compaction result
-				const result = await compact(
-					preparation,
-					this.model,
-					apiKey,
-					headers,
-					customInstructions,
-					this._compactionAbortController.signal,
-				);
+				const result = await compact(preparation, this.model, apiKey, headers, customInstructions, signal);
 				summary = result.summary;
 				firstKeptEntryId = result.firstKeptEntryId;
 				tokensBefore = result.tokensBefore;
 				details = result.details;
 			}
 
-			if (this._compactionAbortController.signal.aborted) {
+			if (signal.aborted) {
 				throw new Error("Compaction cancelled");
 			}
 
@@ -1705,7 +1699,10 @@ export class AgentSession {
 			});
 			throw error;
 		} finally {
-			this._compactionAbortController = undefined;
+			this._activeCompactionControllers.delete(controller);
+			if (this._activeCompactionControllers.size === 0) {
+				this._compactionCancelController = undefined;
+			}
 			this._reconnectToAgent();
 		}
 	}
@@ -1714,8 +1711,7 @@ export class AgentSession {
 	 * Cancel in-progress compaction (manual or auto).
 	 */
 	abortCompaction(): void {
-		this._compactionAbortController?.abort();
-		this._autoCompactionAbortController?.abort();
+		this._compactionCancelController?.abort();
 	}
 
 	/**
@@ -1821,9 +1817,17 @@ export class AgentSession {
 	 */
 	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<void> {
 		const settings = this.settingsManager.getCompactionSettings();
+		if (this._activeCompactionControllers.size > 0) {
+			return;
+		}
 
 		this._emit({ type: "compaction_start", reason });
-		this._autoCompactionAbortController = new AbortController();
+		if (!this._compactionCancelController) {
+			this._compactionCancelController = new AbortController();
+		}
+		const controller = new AbortController();
+		this._activeCompactionControllers.add(controller);
+		const signal = AbortSignal.any([controller.signal, this._compactionCancelController.signal]);
 
 		try {
 			if (!this.model) {
@@ -1873,7 +1877,7 @@ export class AgentSession {
 					preparation,
 					branchEntries: pathEntries,
 					customInstructions: undefined,
-					signal: this._autoCompactionAbortController.signal,
+					signal,
 				})) as SessionBeforeCompactResult | undefined;
 
 				if (extensionResult?.cancel) {
@@ -1906,21 +1910,14 @@ export class AgentSession {
 				details = extensionCompaction.details;
 			} else {
 				// Generate compaction result
-				const compactResult = await compact(
-					preparation,
-					this.model,
-					apiKey,
-					headers,
-					undefined,
-					this._autoCompactionAbortController.signal,
-				);
+				const compactResult = await compact(preparation, this.model, apiKey, headers, undefined, signal);
 				summary = compactResult.summary;
 				firstKeptEntryId = compactResult.firstKeptEntryId;
 				tokensBefore = compactResult.tokensBefore;
 				details = compactResult.details;
 			}
 
-			if (this._autoCompactionAbortController.signal.aborted) {
+			if (signal.aborted) {
 				this._emit({
 					type: "compaction_end",
 					reason,
@@ -1988,7 +1985,10 @@ export class AgentSession {
 						: `Auto-compaction failed: ${errorMessage}`,
 			});
 		} finally {
-			this._autoCompactionAbortController = undefined;
+			this._activeCompactionControllers.delete(controller);
+			if (this._activeCompactionControllers.size === 0) {
+				this._compactionCancelController = undefined;
+			}
 		}
 	}
 

@@ -5,6 +5,8 @@
 ### Fixed
 
 - Updated `antigravity-image-gen.ts` example extension to use User-Agent version `1.21.9` ([#2901](https://github.com/badlogic/pi-mono/pull/2901) by [@aadishv](https://github.com/aadishv))
+- Fixed overlapping manual and auto compactions to share a stable cancel-all signal, preventing `Cannot read properties of undefined (reading 'signal')` crashes during concurrent compaction runs ([#3075](https://github.com/badlogic/pi-mono/pull/3075) by [@aliou](https://github.com/aliou))
+
 ### Added
 
 - Set `PI_CODING_AGENT=true` environment variable at startup so sub-processes can detect they are running inside the coding agent ([#2868](https://github.com/badlogic/pi-mono/issues/2868))
