@@ -135,6 +135,7 @@ describe("openai-completions prompt caching", () => {
 	it("omits prompt cache fields for non-OpenAI base URLs", async () => {
 		const model = createModel({
 			baseUrl: "https://proxy.example.com/v1",
+			compat: { supportsLongCacheRetention: false },
 		});
 		const { payload } = await captureRequest({ cacheRetention: "long", sessionId: "session-proxy" }, model);
 
